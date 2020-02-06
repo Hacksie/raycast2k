@@ -1,0 +1,330 @@
+<html>
+<head>
+<style>
+body {
+
+}
+#screen {
+width:640px;
+height:400px;
+background:#333333;
+}
+
+
+</style>
+<script language = "Javascript">
+
+var screenLeft = 8;
+var screenTop = 8;
+
+var map = new Array(200);
+
+var wallSize   = 64;
+var projWidth,projHeight,da;
+//var fov    = 60;
+var fov = 64;
+var projwallheight = 17728; //64 * 277
+var running  = true; 
+var raylen = 5000;
+var slicesize = 2;
+var d2r = Math.PI / 180;
+
+var lineArray  = new Array(projWidth);
+var cosTable   = new Array(3600);
+var sinTable   = new Array(3600);
+var lcosTable  = new Array(3600);
+var lsinTable  = new Array(3600);
+var colTable   = new Array(255);
+
+var px = 210,py = 812,pa = 45, ph = -128;
+
+
+//********************* OBJECTS *********************
+function point(x,y)
+{
+    this.x = x;
+    this.y = y;
+}
+
+function wall(p1,p2)
+{
+    this.a = p1;
+    this.b = p2;
+}
+
+function world()
+{
+    this.vertices    = new Array(200);
+    this.edges       = new Array(200);
+    this.numVertices = 0;
+    this.numEdges    = 0;
+    
+}
+//******************* END OBJECTS *******************
+
+function keyinput(e)
+{
+    
+   //alert("Test");
+    if (!e) e = window.event;
+    
+
+    if(e.keyCode == 37)
+    {
+        pa = pa - 10;
+        if(pa<0) pa = 360 + pa;            
+   
+    }
+    if(e.keyCode == 39)
+    {
+        pa = pa + 10;
+        if(pa>=360) pa = pa - 360;        
+    }   
+ 
+    if(e.keyCode == 38)
+    {
+	    px = px - 16 * cosTable[Math.floor(pa * 10)];
+	    py = py - 16 * sinTable[Math.floor(pa * 10)];
+    }	
+
+    if(e.keyCode == 40)
+    {
+	    px = px + 16 * cosTable[Math.floor(pa * 10)];
+	    py = py + 16 * sinTable[Math.floor(pa * 10)];
+    }	
+
+    var d = new Date();
+    var t = d.getTime();
+    render();
+    var d2 = new Date();
+    var t2 = d2.getTime();
+    obj("console").innerHTML = (t2 - t);
+}
+
+function obj(id) {
+    return document.getElementById(id);
+}
+
+
+function degtorad(deg)
+{
+    return deg * Math.PI / 180;
+}
+
+function radtodeg(rad)
+{
+    return rad * 180 / Math.PI;
+}
+
+function loadWall(v1x,v1y,v2x,v2y)
+{
+     
+}
+
+function loadMap()
+{
+
+    map[0] = new wall(new point(0,0),new point(1024,0));
+    map[1] = new wall(new point(1024,0),new point(1024,1024));
+    map[2] = new wall(new point(1024,1024),new point(0,1024));
+    map[3] = new wall(new point(0,1024),new point(0,0));
+    map[4] = new wall(new point(512,512),new point(512,0));
+    map[5] = new wall(new point(512,512),new point(1024,1024));
+}
+
+function lineInt(ax,ay,bx,by,vx,vy,wx,wy,p)
+{
+    var dx,dy,da,db,s,t,denom;
+    
+    dx = bx - ax;
+    dy = by - ay;
+    da = wx - vx;
+    db = wy - vy;
+    
+    denom = (da * dy - db * dx)
+    
+    if(denom == 0)
+        return 0;
+        
+    s = (dx * (vy - ay) + dy * (ax - vx)) / denom;
+    
+    if(s>=0 && s<=1)
+    {
+        t = (da * (ay - vy) + db * (vx - ax)) / denom;
+        if(t>=0 && t<=1)
+        {
+            p[0] = ax + (t * dx);
+            p[1] = ay + (t * dy);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+function initTables()
+{
+
+    for (i = 0; i <= 3600; i++)
+    {
+        // Math tables
+        var tmp = degtorad(i/10);  
+        
+        cosTable[i] = Math.round(Math.cos(tmp) * 1000) / 1000;
+        sinTable[i] = Math.round(Math.sin(tmp) * 1000) / 1000;
+        lcosTable[i] = raylen * cosTable[i];
+        lsinTable[i] = raylen * sinTable[i];
+       // tanTable[i] = Math.tan(tmp);
+       // icosTable[i] = 1.0 / Math.cos(tmp);
+       // isinTable[i] = 1.0 / Math.sin(tmp);
+       // itanTable[i] = 1.0 / Math.tan(tmp);
+    }
+    
+    
+    for(j = 0; j<256; j++)
+    {
+        colTable[j] = j.toString(16);
+    }
+}
+
+function init()
+{
+
+    var scn = obj("screen");    
+    
+    projWidth  = scn.offsetWidth;
+    projHeight = scn.offsetHeight;
+    
+    da = (fov) / projWidth * slicesize;
+
+    for (i = 0; i<(projWidth/slicesize); i++) {
+      /*  for(j=0; j<40; j++) {*/
+            var tmp = document.createElement("span");
+            tmp.setAttribute("id","ln" + i);
+            obj("screen").appendChild(tmp);
+            tmp.style.background = "#00a0d0";
+            tmp.style.position = "absolute";
+            tmp.style.display = "block"; 
+            tmp.style.width = "2px";
+            tmp.style.height = "200px";
+            tmp.style.top = screenTop + 0 + "px";
+            tmp.style.left = screenLeft + (i*slicesize) + "px";
+            
+            lineArray[i] = tmp;
+     /*   }*/
+    }
+
+
+    initTables();
+    loadMap();
+    
+    //obj("screen").onkeydown = keyinput;
+    document.onkeydown = keyinput;
+    
+    var d = new Date();
+    var t = d.getTime();
+    render();
+    var d2 = new Date();
+    var t2 = d2.getTime();
+    obj("console").innerHTML = (t2 - t);
+    //var c = 0;
+    /*
+    while(running)
+    {
+        render();
+        ++c;
+        var d2 = new Date();
+        var t2 = d2.getTime();        
+        if((t2 - t) > 1000) {
+            t = t2;
+            obj("console").innerHTML = c;   
+            break;
+        };
+        if(!running) break;
+    }
+ */
+    
+        
+}
+
+function render()
+{
+    var sqrt = Math.sqrt;
+    var floor = Math.floor;
+    var cos   = Math.cos;
+    var sin   = Math.sin;
+    var abs   = Math.abs;
+    var min   = Math.min;
+    var intersect = lineInt;
+    var col = lineArray;
+    var p = new Array(2);
+    var rx,ry,ra;
+    
+    var dist, height;
+
+    casta = pa + 30;
+    
+    if (casta>360)
+        casta = casta - 360;
+/*
+
+    var p1 = new point(0,0),p2 = new point(0,0),retp = new point(0,0);
+    p1.x = px; p1.y = py;*/
+    
+    line = (projWidth/2);
+    do 
+    {
+        ra = casta * d2r;
+        dist = 999999;
+
+        rx = px + raylen * cos(ra);
+        ry = py + raylen * sin(ra);      
+         
+        i = 6;
+        do {
+            if(intersect(px,py,rx,ry,map[i-1].a.x,map[i-1].a.y,map[i-1].b.x,map[i-1].b.y,p))
+            {
+                
+                    dist = min(sqrt((p[0] - px) * (p[0] - px) + 
+                               (p[1] - py) * (p[1] - py)),dist);           
+
+                
+                //dist = min(abs(p[0] - px) / cos(d2r * casta),dist);
+                
+            }
+        
+        } while(--i);
+
+        
+        var ca = casta - pa;
+        if (ca<0) ca = 360 + ca;
+        
+        fishdist = dist * cos(ca * d2r);
+                
+        height = floor(projwallheight * 2 / fishdist);
+        
+        height = Math.min(projHeight,height);
+        top    = 300 - (height / 2);
+        
+        col[(line-1)].style.top = screenTop + top + "px";
+        col[(line-1)].style.height = height + ph + "px";
+       
+
+        casta -= da;
+        if (casta<0)
+            casta = 360 + casta;        
+    } while (--line);
+}
+
+</script>
+</head>
+<body>
+<div id="screen">
+</div>
+<div id="console">
+Test
+</div>
+<script language="Javascript">
+init();
+</script>
+</body>
+</html>
